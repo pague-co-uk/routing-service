@@ -1,4 +1,8 @@
 export default () => ({
+  // ===========================================================================
+  // Application
+  // ===========================================================================
+
   app: {
     name:
       process.env.APP_NAME ??
@@ -11,12 +15,31 @@ export default () => ({
     environment:
       process.env.NODE_ENV ??
       "development",
+
+    host:
+      process.env.APP_HOST ??
+      "0.0.0.0",
+
+    port:
+      Number.parseInt(
+        process.env.APP_PORT ??
+        "9003",
+        10,
+      ),
   },
+
+  // ===========================================================================
+  // Database
+  // ===========================================================================
 
   database: {
     url:
       process.env.DATABASE_URL!,
   },
+
+  // ===========================================================================
+  // RabbitMQ
+  // ===========================================================================
 
   rabbitmq: {
     url:
@@ -54,6 +77,7 @@ export default () => ({
           10,
         )
         : undefined,
+
     autoCreateQueues:
       process.env.RABBITMQ_AUTO_CREATE_QUEUES !==
       "false",
@@ -62,6 +86,10 @@ export default () => ({
       process.env.RABBITMQ_AUTO_RECOVER !==
       "false",
   },
+
+  // ===========================================================================
+  // Telemetry
+  // ===========================================================================
 
   telemetry: {
     enabled:
@@ -77,13 +105,16 @@ export default () => ({
       "1.0.0",
 
     tracesEndpoint:
-      process.env.OTEL_TRACES_ENDPOINT!,
+      process.env.OTEL_TRACES_ENDPOINT ??
+      "",
 
     metricsEndpoint:
-      process.env.OTEL_METRICS_ENDPOINT!,
+      process.env.OTEL_METRICS_ENDPOINT ??
+      "",
 
     logsEndpoint:
-      process.env.OTEL_LOGS_ENDPOINT!,
+      process.env.OTEL_LOGS_ENDPOINT ??
+      "",
 
     exportIntervalMillis:
       Number.parseInt(
@@ -96,6 +127,10 @@ export default () => ({
       process.env.OTEL_DISABLE_FS_INSTRUMENTATION ===
       "true",
   },
+
+  // ===========================================================================
+  // Logging
+  // ===========================================================================
 
   log: {
     level:
@@ -117,13 +152,17 @@ export default () => ({
     },
   },
 
+  // ===========================================================================
+  // Routing
+  // ===========================================================================
+
   routing: {
     consumerQueue:
       process.env.ROUTING_CONSUMER_QUEUE ??
       "sms.routing",
+
     resultQueue:
       process.env.ROUTING_RESULT_QUEUE ??
       "routing.results",
   },
-
 });

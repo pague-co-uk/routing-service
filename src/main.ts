@@ -10,7 +10,8 @@ import {
 import configuration from "./config/configuration.js";
 
 async function bootstrap(): Promise<void> {
-  const config = configuration();
+  const config =
+    configuration();
 
   // =========================================================================
   // Telemetry MUST be initialized before Nest creates providers.
@@ -84,7 +85,7 @@ async function bootstrap(): Promise<void> {
   ]);
 
   const app =
-    await NestFactory.createApplicationContext(
+    await NestFactory.create(
       AppModule,
     );
 
@@ -92,7 +93,31 @@ async function bootstrap(): Promise<void> {
     new TelemetryLogger(),
   );
 
+  await app.listen(
+    config.app.port,
+    config.app.host,
+  );
+
   logger.info(
+    {
+      service:
+        config.app.name,
+
+      version:
+        config.app.version,
+
+      environment:
+        config.app.environment,
+
+      host:
+        config.app.host,
+
+      port:
+        config.app.port,
+
+      healthEndpoint:
+        "/health",
+    },
     "Routing service started successfully.",
   );
 
@@ -105,7 +130,9 @@ async function bootstrap(): Promise<void> {
       signal: string,
     ): Promise<void> => {
       logger.info(
-        { signal },
+        {
+          signal,
+        },
         "Shutting down routing service.",
       );
 
@@ -117,7 +144,8 @@ async function bootstrap(): Promise<void> {
       } catch (error) {
         logger.error(
           {
-            err: error,
+            err:
+              error,
           },
           "Failed during graceful shutdown.",
         );

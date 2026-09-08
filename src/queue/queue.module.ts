@@ -7,21 +7,19 @@ import {
   queueProvider,
 } from "./queue.provider.js";
 
-import { ConfigModule } from "@nestjs/config";
 import {
-  QUEUE_CLIENT,
-} from "./constants/queue.constants.js";
-import { AppConfigService } from "../config/config.service.js";
+  QueueLifecycle,
+} from "./queue.lifecycle.js";
 
 @Global()
 @Module({
   providers: [
-    queueProvider,AppConfigService
+    queueProvider,
+    QueueLifecycle,
   ],
 
   exports: [
-    QUEUE_CLIENT
+    queueProvider,
   ],
-  imports: [ConfigModule]
 })
 export class QueueModule { }

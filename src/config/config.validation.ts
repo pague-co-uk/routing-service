@@ -25,6 +25,17 @@ export const configValidationSchema =
       Joi.string()
         .default("1.0.0"),
 
+    APP_HOST:
+      Joi.string()
+        .default("0.0.0.0"),
+
+    APP_PORT:
+      Joi.number()
+        .integer()
+        .min(1)
+        .max(65535)
+        .default(9003),
+
     // =========================================================================
     // Database
     // =========================================================================
@@ -70,16 +81,29 @@ export const configValidationSchema =
         .integer()
         .min(1)
         .optional(),
+
     RABBITMQ_AUTO_CREATE_QUEUES:
       Joi.boolean()
-        .truthy("true", "1")
-        .falsy("false", "0")
+        .truthy(
+          "true",
+          "1",
+        )
+        .falsy(
+          "false",
+          "0",
+        )
         .default(true),
 
     RABBITMQ_AUTO_RECOVER:
       Joi.boolean()
-        .truthy("true", "1")
-        .falsy("false", "0")
+        .truthy(
+          "true",
+          "1",
+        )
+        .falsy(
+          "false",
+          "0",
+        )
         .default(true),
 
     // =========================================================================
@@ -89,6 +113,7 @@ export const configValidationSchema =
     ROUTING_CONSUMER_QUEUE:
       Joi.string()
         .default("sms.routing"),
+
     ROUTING_RESULT_QUEUE:
       Joi.string()
         .default("routing.results"),
