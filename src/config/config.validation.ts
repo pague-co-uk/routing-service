@@ -80,19 +80,8 @@ export const configValidationSchema =
       Joi.number()
         .integer()
         .min(1)
+        .empty("")
         .optional(),
-
-    RABBITMQ_AUTO_CREATE_QUEUES:
-      Joi.boolean()
-        .truthy(
-          "true",
-          "1",
-        )
-        .falsy(
-          "false",
-          "0",
-        )
-        .default(true),
 
     RABBITMQ_AUTO_RECOVER:
       Joi.boolean()
@@ -110,30 +99,18 @@ export const configValidationSchema =
     // Routing
     // =========================================================================
 
-    /*
-     * Queue consumed by Routing Service for newly queued messages.
-     */
     ROUTING_CONSUMER_QUEUE:
       Joi.string()
         .default("sms.queued"),
 
-    /*
-     * Queue consumed by the HTTP connector client.
-     */
     ROUTING_HTTP_QUEUE:
       Joi.string()
-        .default("sms.http"),
+        .default("sms.route.http"),
 
-    /*
-     * Queue consumed by the SMPP connector client.
-     */
     ROUTING_SMPP_QUEUE:
       Joi.string()
-        .default("sms.smpp"),
+        .default("sms.route.smpp"),
 
-    /*
-     * Queue consumed by Routing Service for connector results.
-     */
     ROUTING_RESULT_QUEUE:
       Joi.string()
         .default("sms.route.result"),
@@ -188,7 +165,7 @@ export const configValidationSchema =
     LOG_FILE_PATH:
       Joi.string()
         .default(
-          "/var/log/routing-service/application.log",
+          "/var/log/pague/sms-gateway-routing-service/application.log",
         ),
 
     // =========================================================================

@@ -105,33 +105,21 @@ export class AppConfigService {
 
   get routing() {
     return {
-      /*
-       * Queue consumed by Routing Service for newly queued messages.
-       */
       consumerQueue:
         this.config.getOrThrow<string>(
           "routing.consumerQueue",
         ),
 
-      /*
-       * Queue consumed by the HTTP connector client.
-       */
       httpQueue:
         this.config.getOrThrow<string>(
           "routing.httpQueue",
         ),
 
-      /*
-       * Queue consumed by the SMPP connector client.
-       */
       smppQueue:
         this.config.getOrThrow<string>(
           "routing.smppQueue",
         ),
 
-      /*
-       * Queue consumed by Routing Service for connector results.
-       */
       resultQueue:
         this.config.getOrThrow<string>(
           "routing.resultQueue",

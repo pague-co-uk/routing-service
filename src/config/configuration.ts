@@ -144,7 +144,7 @@ export default () => ({
 
       path:
         process.env.LOG_FILE_PATH ??
-        "/var/log/routing-service/application.log",
+        "/var/log/pague/sms-gateway-routing-service/application.log",
     },
   },
 
@@ -153,30 +153,18 @@ export default () => ({
   // ===========================================================================
 
   routing: {
-    /*
-     * Routing Service input queue.
-     */
     consumerQueue:
       process.env.ROUTING_CONSUMER_QUEUE ??
       "sms.queued",
 
-    /*
-     * HTTP connector client input queue.
-     */
     httpQueue:
       process.env.ROUTING_HTTP_QUEUE ??
-      "sms.http",
+      "sms.route.http",
 
-    /*
-     * SMPP connector client input queue.
-     */
     smppQueue:
       process.env.ROUTING_SMPP_QUEUE ??
-      "sms.smpp",
+      "sms.route.smpp",
 
-    /*
-     * Connector result queue consumed by Routing Service.
-     */
     resultQueue:
       process.env.ROUTING_RESULT_QUEUE ??
       "sms.route.result",
