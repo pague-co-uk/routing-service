@@ -78,10 +78,6 @@ export default () => ({
         )
         : undefined,
 
-    autoCreateQueues:
-      process.env.RABBITMQ_AUTO_CREATE_QUEUES !==
-      "false",
-
     autoRecover:
       process.env.RABBITMQ_AUTO_RECOVER !==
       "false",
@@ -157,12 +153,32 @@ export default () => ({
   // ===========================================================================
 
   routing: {
+    /*
+     * Routing Service input queue.
+     */
     consumerQueue:
       process.env.ROUTING_CONSUMER_QUEUE ??
-      "sms.routing",
+      "sms.queued",
 
+    /*
+     * HTTP connector client input queue.
+     */
+    httpQueue:
+      process.env.ROUTING_HTTP_QUEUE ??
+      "sms.http",
+
+    /*
+     * SMPP connector client input queue.
+     */
+    smppQueue:
+      process.env.ROUTING_SMPP_QUEUE ??
+      "sms.smpp",
+
+    /*
+     * Connector result queue consumed by Routing Service.
+     */
     resultQueue:
       process.env.ROUTING_RESULT_QUEUE ??
-      "routing.results",
+      "sms.route.result",
   },
 });

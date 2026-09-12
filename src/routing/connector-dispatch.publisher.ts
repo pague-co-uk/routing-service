@@ -3,6 +3,14 @@ import {
   Injectable,
 } from "@nestjs/common";
 
+import {
+  ConnectorTransport,
+} from "@prisma/client";
+
+import {
+  AppConfigService,
+} from "../config/config.service.js";
+
 import type {
   QueueClient,
 } from "@pague-co-uk/sms-gateway-queue-client";
@@ -17,10 +25,6 @@ import {
   QUEUE_CLIENT,
 } from "../queue/constants/queue.constants.js";
 
-import {
-  getConnectorQueue,
-} from "./connector-queue.js";
-
 import type {
   ConnectorDispatchMessage,
 } from "./types/connector-dispatch-message.js";
@@ -33,6 +37,9 @@ export class ConnectorDispatchPublisher {
     );
 
   constructor(
+    private readonly config:
+      AppConfigService,
+
     @Inject(QUEUE_CLIENT)
     private readonly queue:
       QueueClient,
@@ -40,11 +47,11 @@ export class ConnectorDispatchPublisher {
 
   async publish(
     message: ConnectorDispatchMessage,
-    connectorCode: string,
+    transport: ConnectorTransport,
   ): Promise<void> {
     const queueName =
-      getConnectorQueue(
-        connectorCode,
+      this.resolveQueue(
+        transport,
       );
 
     await withSpan(
@@ -63,8 +70,8 @@ export class ConnectorDispatchPublisher {
           "message.connector_id":
             message.connectorId,
 
-          "connector.code":
-            connectorCode,
+          "connector.transport":
+            transport,
 
           "connector.queue":
             queueName,
@@ -90,7 +97,7 @@ export class ConnectorDispatchPublisher {
               connectorId:
                 message.connectorId,
 
-              connectorCode,
+              transport,
 
               queue:
                 queueName,
@@ -108,10 +115,13 @@ export class ConnectorDispatchPublisher {
               attemptId:
                 message.attemptId,
 
+              routeId:
+                message.routeId,
+
               connectorId:
                 message.connectorId,
 
-              connectorCode,
+              transport,
 
               queue:
                 queueName,
@@ -126,5 +136,22 @@ export class ConnectorDispatchPublisher {
         }
       },
     );
+  }
+
+  private resolveQueue(
+    transport: ConnectorTransport,
+  ): string {
+    switch (transport) {
+      case ConnectorTransport.HTTP:
+        return this.config.routing.httpQueue;
+
+      case ConnectorTransport.SMPP:
+        return this.config.routing.smppQueue;
+
+      default:
+        throw new Error(
+          `Unsupported connector transport: ${transport}`,
+        );
+    }
   }
 }

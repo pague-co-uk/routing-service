@@ -9,6 +9,10 @@ import {
 } from "@pague-co-uk/sms-gateway-telemetry";
 
 import {
+  MessageRouteAttemptStatus,
+} from "@prisma/client";
+
+import {
   RoutingRepository,
 } from "../repositories/routing.repository.js";
 
@@ -20,10 +24,9 @@ import type {
   RoutingMessage,
 } from "./types/routing-message.js";
 
-import {
-  MessageRouteAttemptStatus,
-} from "@prisma/client";
-import { RoutingResult } from "./types/routing-result.js";
+import type {
+  RoutingResult,
+} from "./types/routing-result.js";
 
 @Injectable()
 export class RoutingService {
@@ -387,12 +390,27 @@ export class RoutingService {
 
             "routing.attempt":
               attemptNumber,
+
+            "routing.transport":
+              route.connector.transport,
           });
 
           // =================================================================
-          // Dispatch to connector
+          // Dispatch to connector client
           // =================================================================
 
+          /*
+           * Routing Service only decides which transport client should
+           * receive the message.
+           *
+           * The transport determines the queue:
+           *
+           *   HTTP -> HTTP connector queue
+           *   SMPP -> SMPP connector queue
+           *
+           * The connectorId travels with the message so the receiving
+           * client can load the connector and resolve its provider.
+           */
           await this.dispatch.publish(
             {
               messageId:
@@ -408,7 +426,7 @@ export class RoutingService {
                 route.connectorId,
             },
 
-            route.connector.code,
+            route.connector.transport,
           );
 
           // =================================================================
@@ -429,15 +447,15 @@ export class RoutingService {
               connectorId:
                 route.connectorId,
 
-              connector:
-                route.connector.code,
+              transport:
+                route.connector.transport,
 
               priority:
                 route.priority,
 
               attemptNumber,
             },
-            "Message routed to connector.",
+            "Message routed to connector client.",
           );
         } catch (error) {
           recordException(error);
@@ -458,6 +476,10 @@ export class RoutingService {
       },
     );
   }
+
+  // =========================================================================
+  // Connector Result Processing
+  // =========================================================================
 
   async processResult(
     result: RoutingResult,
@@ -622,7 +644,7 @@ export class RoutingService {
          *   We cannot determine whether the provider accepted it.
          *
          * FAILED:
-         *   Provider definitively rejected/failed the attempt.
+         *   Provider definitively failed the attempt.
          */
         if (
           result.status !==

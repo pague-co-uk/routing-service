@@ -110,13 +110,33 @@ export const configValidationSchema =
     // Routing
     // =========================================================================
 
+    /*
+     * Queue consumed by Routing Service for newly queued messages.
+     */
     ROUTING_CONSUMER_QUEUE:
       Joi.string()
-        .default("sms.routing"),
+        .default("sms.queued"),
 
+    /*
+     * Queue consumed by the HTTP connector client.
+     */
+    ROUTING_HTTP_QUEUE:
+      Joi.string()
+        .default("sms.http"),
+
+    /*
+     * Queue consumed by the SMPP connector client.
+     */
+    ROUTING_SMPP_QUEUE:
+      Joi.string()
+        .default("sms.smpp"),
+
+    /*
+     * Queue consumed by Routing Service for connector results.
+     */
     ROUTING_RESULT_QUEUE:
       Joi.string()
-        .default("routing.results"),
+        .default("sms.route.result"),
 
     ROUTING_CONSUMER_PREFETCH:
       Joi.number()
