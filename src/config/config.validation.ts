@@ -121,6 +121,16 @@ export const configValidationSchema =
         .min(1)
         .max(1000)
         .default(10),
+    ROUTING_DELIVERY_RECEIPT_QUEUE:
+      Joi.string()
+        .default(
+          "sms.route.delivery-receipt",
+        ),
+    ROUTING_CLIENT_DLR_QUEUE:
+      Joi.string()
+        .default(
+          "sms.client.dlr",
+        ),
 
     // =========================================================================
     // Logging

@@ -184,6 +184,18 @@ export class RoutingRepository
     });
   }
 
+  async findAttemptByProviderMessageId(
+    connectorId: string,
+    providerMessageId: string,
+  ) {
+    return this.db.messageRouteAttempt.findFirst({
+      where: {
+        connectorId,
+        providerMessageId,
+      },
+    });
+  }
+
   // =========================================================================
   // Attempt state
   // =========================================================================
@@ -414,6 +426,126 @@ export class RoutingRepository
             },
           });
 
+        // ---------------------------------------------------------------------
+        // Update message status and create status event
+        // ---------------------------------------------------------------------
+
+        /*
+         * MessageRouteAttemptStatus and MessageStatus are separate enums.
+         *
+         * The routing attempt records the connector lifecycle while the
+         * message records the overall message lifecycle.
+         */
+
+        // Connector accepted/submitted the message to the provider.
+        //
+        // This does NOT mean the handset has received the message.
+        //
+        // A later delivery receipt must transition the message to DELIVERED.
+        if (
+          data.status ===
+          MessageRouteAttemptStatus.SUBMITTED
+        ) {
+          await db.message.update({
+            where: {
+              id: attempt.messageId,
+            },
+
+            data: {
+              currentStatus:
+                MessageStatus.SUBMITTED,
+
+              submittedAt:
+                now,
+            },
+          });
+
+          await db.messageStatusEvent.create({
+            data: {
+              messageId:
+                attempt.messageId,
+
+              attemptId:
+                attempt.id,
+
+              status:
+                MessageStatus.SUBMITTED,
+
+              source:
+                "routing",
+
+              description:
+                "Message submitted to provider.",
+
+              rawData:
+                data.providerMessageId
+                  ? {
+                    providerMessageId:
+                      data.providerMessageId,
+                  }
+                  : undefined,
+
+              createdAt:
+                now,
+            },
+          });
+        }
+
+        // Connector definitively rejected/failed the message.
+        if (
+          data.status ===
+          MessageRouteAttemptStatus.FAILED
+        ) {
+          await db.message.update({
+            where: {
+              id: attempt.messageId,
+            },
+
+            data: {
+              currentStatus:
+                MessageStatus.FAILED,
+            },
+          });
+
+          await db.messageStatusEvent.create({
+            data: {
+              messageId:
+                attempt.messageId,
+
+              attemptId:
+                attempt.id,
+
+              status:
+                MessageStatus.FAILED,
+
+              source:
+                "routing",
+
+              description:
+                data.errorMessage ??
+                "Message submission to provider failed.",
+
+              rawData:
+                data.errorCode
+                  ? {
+                    errorCode:
+                      data.errorCode,
+                  }
+                  : undefined,
+
+              createdAt:
+                now,
+            },
+          });
+        }
+
+        /*
+         * UNKNOWN does not immediately change the overall message status.
+         *
+         * The provider outcome is unresolved and should remain subject
+         * to the expiry/timeout mechanism.
+         */
+
         return {
           applied: true,
           attempt: updated,
@@ -421,6 +553,163 @@ export class RoutingRepository
       },
     );
   }
+
+  async applyDeliveryReceipt(
+    data: {
+      attemptId: string;
+      status:
+      | "DELIVERED"
+      | "FAILED";
+      errorCode?: string;
+      errorMessage?: string;
+      rawData?: {
+        sourceAddress?: string;
+        destinationAddress?: string;
+        shortMessage?: string;
+      };
+    },
+  ) {
+    return this.transaction(
+      async (db) => {
+        const attempt =
+          await db.messageRouteAttempt.findUnique({
+            where: {
+              id: data.attemptId,
+            },
+          });
+
+        // ---------------------------------------------------------------------
+        // Attempt does not exist
+        // ---------------------------------------------------------------------
+
+        if (!attempt) {
+          return {
+            applied: false,
+            attempt: null,
+          };
+        }
+
+        // ---------------------------------------------------------------------
+        // Only submitted attempts can receive a DLR
+        // ---------------------------------------------------------------------
+
+        if (
+          attempt.status !==
+          MessageRouteAttemptStatus.SUBMITTED
+        ) {
+          return {
+            applied: false,
+            attempt,
+          };
+        }
+
+        const now =
+          new Date();
+
+        // ---------------------------------------------------------------------
+        // Update routing attempt
+        // ---------------------------------------------------------------------
+
+        const updated =
+          await db.messageRouteAttempt.update({
+            where: {
+              id: attempt.id,
+            },
+
+            data: {
+              status:
+                data.status ===
+                  "DELIVERED"
+                  ? MessageRouteAttemptStatus.SUBMITTED
+                  : MessageRouteAttemptStatus.FAILED,
+
+              errorCode:
+                data.errorCode,
+
+              errorMessage:
+                data.errorMessage,
+
+              failedAt:
+                data.status ===
+                  "FAILED"
+                  ? now
+                  : undefined,
+            },
+          });
+
+        // ---------------------------------------------------------------------
+        // Update message
+        // ---------------------------------------------------------------------
+
+        const messageStatus =
+          data.status ===
+            "DELIVERED"
+            ? MessageStatus.DELIVERED
+            : MessageStatus.FAILED;
+
+        await db.message.update({
+          where: {
+            id: attempt.messageId,
+          },
+
+          data: {
+            currentStatus:
+              messageStatus,
+          },
+        });
+
+        // ---------------------------------------------------------------------
+        // Create status event
+        // ---------------------------------------------------------------------
+
+        await db.messageStatusEvent.create({
+          data: {
+            messageId:
+              attempt.messageId,
+
+            attemptId:
+              attempt.id,
+
+            status:
+              messageStatus,
+
+            source:
+              "smpp",
+
+            description:
+              data.status ===
+                "DELIVERED"
+                ? "Message delivered to handset."
+                : data.errorMessage ??
+                "Message delivery failed.",
+
+            rawData:
+              data.rawData
+                ? {
+                  sourceAddress:
+                    data.rawData.sourceAddress,
+
+                  destinationAddress:
+                    data.rawData.destinationAddress,
+
+                  shortMessage:
+                    data.rawData.shortMessage,
+                }
+                : undefined,
+
+            createdAt:
+              now,
+          },
+        });
+
+        return {
+          applied: true,
+          attempt: updated,
+        };
+      },
+    );
+  }
+
   // =========================================================================
   // Message
   // =========================================================================
@@ -435,34 +724,47 @@ export class RoutingRepository
     });
   }
 
-  async markMessageRouted(
-    messageId: string,
-  ) {
-    return this.db.message.update({
-      where: {
-        id: messageId,
-      },
-
-      data: {
-        currentStatus:
-          MessageStatus.ROUTED,
-      },
-    });
-  }
-
   async markMessageFailed(
     messageId: string,
   ) {
-    return this.db.message.update({
-      where: {
-        id: messageId,
-      },
+    return this.transaction(
+      async (db) => {
+        const now =
+          new Date();
 
-      data: {
-        currentStatus:
-          MessageStatus.FAILED,
+        const message =
+          await db.message.update({
+            where: {
+              id: messageId,
+            },
+
+            data: {
+              currentStatus:
+                MessageStatus.FAILED,
+            },
+          });
+
+        await db.messageStatusEvent.create({
+          data: {
+            messageId,
+
+            status:
+              MessageStatus.FAILED,
+
+            source:
+              "routing",
+
+            description:
+              "Message routing failed.",
+
+            createdAt:
+              now,
+          },
+        });
+
+        return message;
       },
-    });
+    );
   }
 
   // =========================================================================
@@ -480,6 +782,9 @@ export class RoutingRepository
   ) {
     return this.transaction(
       async (db) => {
+        const now =
+          new Date();
+
         const attempt =
           await db.messageRouteAttempt.create({
             data: {
@@ -502,7 +807,7 @@ export class RoutingRepository
                 MessageRouteAttemptStatus.PENDING,
 
               startedAt:
-                new Date(),
+                now,
             },
           });
 
@@ -514,6 +819,28 @@ export class RoutingRepository
           data: {
             currentStatus:
               MessageStatus.ROUTED,
+          },
+        });
+
+        await db.messageStatusEvent.create({
+          data: {
+            messageId:
+              data.messageId,
+
+            attemptId:
+              attempt.id,
+
+            status:
+              MessageStatus.ROUTED,
+
+            source:
+              "routing",
+
+            description:
+              "Message routed to connector.",
+
+            createdAt:
+              now,
           },
         });
 

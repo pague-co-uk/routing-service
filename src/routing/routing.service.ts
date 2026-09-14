@@ -24,9 +24,11 @@ import type {
   RoutingMessage,
 } from "./types/routing-message.js";
 
+import { ClientDlrPublisher } from "./client-dlr-event.publisher.js";
 import type {
   RoutingResult,
 } from "./types/routing-result.js";
+import { SmppDeliveryReceipt } from "./types/smpp-delivery-receipt.js";
 
 @Injectable()
 export class RoutingService {
@@ -41,6 +43,9 @@ export class RoutingService {
 
     private readonly dispatch:
       ConnectorDispatchPublisher,
+
+    private readonly clientDlrPublisher:
+      ClientDlrPublisher,
   ) { }
 
   // =========================================================================
@@ -668,6 +673,211 @@ export class RoutingService {
           messageId:
             result.messageId,
         });
+      },
+    );
+  }
+
+  // =========================================================================
+  // Delivery Receipt Processing
+  // =========================================================================
+
+  async processDeliveryReceipt(
+    receipt: SmppDeliveryReceipt,
+  ): Promise<void> {
+    await withSpan(
+      "RoutingService.processDeliveryReceipt",
+      async (span) => {
+        try {
+          span.setAttributes({
+            "routing.connector_id":
+              receipt.connectorId,
+
+            "routing.provider_message_id":
+              receipt.providerMessageId,
+
+            "routing.delivery_status":
+              receipt.status,
+          });
+
+          this.logger.info(
+            {
+              connectorId:
+                receipt.connectorId,
+
+              providerMessageId:
+                receipt.providerMessageId,
+
+              status:
+                receipt.status,
+            },
+            "Processing delivery receipt.",
+          );
+
+          const attempt =
+            await this.repository
+              .findAttemptByProviderMessageId(
+                receipt.connectorId,
+                receipt.providerMessageId,
+              );
+
+          if (!attempt) {
+            this.logger.warn(
+              {
+                connectorId:
+                  receipt.connectorId,
+
+                providerMessageId:
+                  receipt.providerMessageId,
+              },
+              "No routing attempt found for delivery receipt.",
+            );
+
+            return;
+          }
+
+          span.setAttributes({
+            "message.id":
+              attempt.messageId,
+
+            "routing.attempt_id":
+              attempt.id,
+
+            "routing.route_id":
+              attempt.routeId,
+
+            "routing.attempt_status":
+              attempt.status,
+          });
+
+          /*
+           * A delivery receipt is only meaningful for a message that the
+           * provider previously accepted.
+           */
+          if (
+            attempt.status !==
+            MessageRouteAttemptStatus.SUBMITTED
+          ) {
+            this.logger.debug(
+              {
+                messageId:
+                  attempt.messageId,
+
+                attemptId:
+                  attempt.id,
+
+                providerMessageId:
+                  receipt.providerMessageId,
+
+                attemptStatus:
+                  attempt.status,
+              },
+              "Ignoring delivery receipt for non-submitted routing attempt.",
+            );
+
+            return;
+          }
+
+          const outcome =
+            await this.repository
+              .applyDeliveryReceipt({
+                attemptId:
+                  attempt.id,
+
+                status:
+                  receipt.status,
+
+                errorCode:
+                  receipt.errorCode,
+
+                errorMessage:
+                  receipt.errorMessage,
+
+                rawData:
+                  receipt.rawData,
+              });
+
+          if (!outcome.attempt) {
+            return;
+          }
+
+          const clientDlrStatus =
+            receipt.status === "DELIVERED"
+              ? "SUCCESS"
+              : "FAILED";
+
+          await this.clientDlrPublisher.publish({
+            messageId:
+              attempt.messageId,
+
+            providerMessageId:
+              receipt.providerMessageId,
+
+            status:
+              clientDlrStatus,
+          });
+
+          if (!outcome.applied) {
+            this.logger.debug(
+              {
+                messageId:
+                  attempt.messageId,
+
+                attemptId:
+                  attempt.id,
+
+                providerMessageId:
+                  receipt.providerMessageId,
+
+                status:
+                  receipt.status,
+              },
+              "Ignoring duplicate delivery receipt.",
+            );
+
+            return;
+          }
+
+          this.logger.info(
+            {
+              messageId:
+                attempt.messageId,
+
+              attemptId:
+                attempt.id,
+
+              connectorId:
+                receipt.connectorId,
+
+              providerMessageId:
+                receipt.providerMessageId,
+
+              status:
+                receipt.status,
+            },
+            "Delivery receipt applied.",
+          );
+        } catch (error) {
+          recordException(error);
+
+          this.logger.error(
+            {
+              connectorId:
+                receipt.connectorId,
+
+              providerMessageId:
+                receipt.providerMessageId,
+
+              status:
+                receipt.status,
+
+              err:
+                error,
+            },
+            "Delivery receipt processing failed.",
+          );
+
+          throw error;
+        }
       },
     );
   }

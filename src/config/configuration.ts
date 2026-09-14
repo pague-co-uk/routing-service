@@ -168,5 +168,11 @@ export default () => ({
     resultQueue:
       process.env.ROUTING_RESULT_QUEUE ??
       "sms.route.result",
+    deliveryReceiptQueue:
+      process.env.ROUTING_DELIVERY_RECEIPT_QUEUE ??
+      "sms.route.delivery-receipt",
+    clientDlrQueue:
+      process.env.ROUTING_CLIENT_DLR_QUEUE ??
+      "sms.client.dlr",
   },
 });
