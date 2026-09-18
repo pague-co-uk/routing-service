@@ -22,6 +22,7 @@ import {
   RoutingService,
 } from "./routing.service.js";
 
+import { CountryRepository } from "../repositories/country.repository.js";
 import { ClientDlrPublisher } from "./client-dlr-event.publisher.js";
 import {
   RoutingResultConsumer,
@@ -30,6 +31,7 @@ import {
 @Module({
   providers: [
     RoutingRepository,
+    CountryRepository,
     RoutingService,
     ConnectorDispatchPublisher,
     RoutingConsumer,

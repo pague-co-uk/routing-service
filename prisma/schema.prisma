@@ -701,6 +701,7 @@ model MessageRouteAttempt {
   updatedAt DateTime @updatedAt
 
   @@unique([messageId, attemptNumber])
+  @@unique([messageId, routeId])
   @@index([messageId])
   @@index([routeId])
   @@index([connectorId])
@@ -745,23 +746,31 @@ model MessageStatusEvent {
 
 model SmppAccount {
   /// Primary Key
+
   id String @id @default(uuid()) @db.Char(36)
 
   /// Public Identifier
+
   publicId String @unique @db.VarChar(20)
 
   /// Foreign Keys
+
   clientId String @db.Char(36)
 
   /// Relationships
+
   client Client @relation(fields: [clientId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
+  ipAllowlist SmppAccountIpAllowlist[]
+
   /// Credentials
+
   systemId String @unique @db.VarChar(50)
 
   passwordHash String @db.VarChar(255)
 
   /// Configuration
+
   status SmppAccountStatus @default(ACTIVE)
 
   maxConcurrentBinds Int @default(1)
@@ -769,6 +778,7 @@ model SmppAccount {
   enquireLinkInterval Int @default(30)
 
   /// Audit
+
   createdAt DateTime @default(now())
 
   updatedAt DateTime @updatedAt
@@ -776,6 +786,34 @@ model SmppAccount {
   @@index([clientId])
   @@index([status])
   @@map("smpp_accounts")
+}
+
+model SmppAccountIpAllowlist {
+  /// Primary Key
+
+  id String @id @default(uuid()) @db.Char(36)
+
+  /// Foreign Keys
+
+  smppAccountId String @db.Char(36)
+
+  /// Relationships
+
+  smppAccount SmppAccount @relation(fields: [smppAccountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  /// Network
+
+  ipAddress String @db.VarChar(45)
+
+  /// Audit
+
+  createdAt DateTime @default(now())
+
+  updatedAt DateTime @updatedAt
+
+  @@unique([smppAccountId, ipAddress])
+  @@index([smppAccountId])
+  @@map("smpp_account_ip_allowlist")
 }
 
 model SenderId {
@@ -997,43 +1035,33 @@ model MobileNetwork {
 
   code String @unique @db.VarChar(50)
 
-  countryCode String @db.Char(2)
+  countryId String @db.Char(36)
+
+  country Country @relation(fields: [countryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  /// Regular expression describing the numbering range
+
+  /// allocated to this mobile network.
+
+  ///
+
+  /// Example:
+
+  /// ^265(?:88|89|90)
+
+  routingRegex String? @db.VarChar(500)
 
   status MobileNetworkStatus @default(ACTIVE)
-
-  prefixes MobileNetworkPrefix[]
 
   routes Route[]
 
   createdAt DateTime @default(now())
+
   updatedAt DateTime @updatedAt
 
-  @@index([countryCode])
+  @@index([countryId])
   @@index([status])
   @@map("mobile_networks")
-}
-
-model MobileNetworkPrefix {
-  id String @id @default(uuid()) @db.Char(36)
-
-  mobileNetworkId String @db.Char(36)
-
-  mobileNetwork MobileNetwork @relation(fields: [mobileNetworkId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-
-  prefix String @db.VarChar(20)
-
-  countryCode String @db.Char(2)
-
-  enabled Boolean @default(true)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([countryCode, prefix])
-  @@index([mobileNetworkId])
-  @@index([prefix])
-  @@index([enabled])
-  @@map("mobile_network_prefixes")
 }
 
 model Connector {
@@ -1099,4 +1127,38 @@ model Route {
   @@index([status])
   @@index([clientId, mobileNetworkId, status, priority])
   @@map("routes")
+}
+
+model Country {
+  id String @id @default(uuid()) @db.Char(36)
+
+  code String @unique @db.Char(2)
+
+  name String @unique @db.VarChar(100)
+
+  callingCodes CountryCallingCode[]
+
+  mobileNetworks MobileNetwork[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("countries")
+}
+
+model CountryCallingCode {
+  id String @id @default(uuid()) @db.Char(36)
+
+  countryId String @db.Char(36)
+
+  callingCode String @db.VarChar(10)
+
+  country Country @relation(fields: [countryId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([countryId, callingCode])
+  @@index([callingCode])
+  @@map("country_calling_codes")
 }

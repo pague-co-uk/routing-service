@@ -13,6 +13,10 @@ import {
 } from "@prisma/client";
 
 import {
+  CountryRepository,
+} from "../repositories/country.repository.js";
+
+import {
   RoutingRepository,
 } from "../repositories/routing.repository.js";
 
@@ -24,11 +28,17 @@ import type {
   RoutingMessage,
 } from "./types/routing-message.js";
 
-import { ClientDlrPublisher } from "./client-dlr-event.publisher.js";
+import {
+  ClientDlrPublisher,
+} from "./client-dlr-event.publisher.js";
+
 import type {
   RoutingResult,
 } from "./types/routing-result.js";
-import { SmppDeliveryReceipt } from "./types/smpp-delivery-receipt.js";
+
+import {
+  SmppDeliveryReceipt,
+} from "./types/smpp-delivery-receipt.js";
 
 @Injectable()
 export class RoutingService {
@@ -40,6 +50,9 @@ export class RoutingService {
   constructor(
     private readonly repository:
       RoutingRepository,
+
+    private readonly countryRepository:
+      CountryRepository,
 
     private readonly dispatch:
       ConnectorDispatchPublisher,
@@ -62,6 +75,14 @@ export class RoutingService {
           span.setAttribute(
             "message.id",
             message.messageId,
+          );
+
+          this.logger.info(
+            {
+              messageId:
+                message.messageId,
+            },
+            "Starting message routing.",
           );
 
           // =================================================================
@@ -93,14 +114,124 @@ export class RoutingService {
               sms.destination,
           });
 
+          this.logger.debug(
+            {
+              messageId:
+                sms.id,
+
+              clientId:
+                sms.clientId,
+
+              destination:
+                sms.destination,
+            },
+            "Message retrieved for routing.",
+          );
+
+          // =================================================================
+          // Resolve destination country
+          // =================================================================
+
+          this.logger.debug(
+            {
+              messageId:
+                sms.id,
+
+              destination:
+                sms.destination,
+            },
+            "Resolving destination country.",
+          );
+
+          const country =
+            await this.countryRepository
+              .findCountryForDestination(
+                sms.destination,
+              );
+
+          if (!country) {
+            await this.repository
+              .markMessageFailed(
+                sms.id,
+              );
+
+            this.logger.error(
+              {
+                messageId:
+                  sms.id,
+
+                destination:
+                  sms.destination,
+              },
+              "Unable to determine destination country for message.",
+            );
+
+            return;
+          }
+
+          span.setAttributes({
+            "routing.country_id":
+              country.id,
+
+            "routing.country_code":
+              country.code,
+          });
+
+          this.logger.info(
+            {
+              messageId:
+                sms.id,
+
+              destination:
+                sms.destination,
+
+              countryId:
+                country.id,
+
+              countryCode:
+                country.code,
+
+              countryName:
+                country.name,
+            },
+            "Destination country resolved.",
+          );
+
           // =================================================================
           // Resolve destination MNO
           // =================================================================
+
+          /*
+           * Mobile-network resolution is performed by the repository using
+           * the active networks for the resolved country and their
+           * routingRegex configuration.
+           *
+           * RoutingService intentionally does not perform regex matching
+           * itself. The repository returns the uniquely resolved network.
+           */
+
+          this.logger.debug(
+            {
+              messageId:
+                sms.id,
+
+              destination:
+                sms.destination,
+
+              countryId:
+                country.id,
+
+              countryCode:
+                country.code,
+            },
+            "Resolving destination mobile network using routing regex.",
+          );
 
           const network =
             await this.repository
               .findMobileNetworkForDestination(
                 sms.destination,
+                country.id,
               );
 
           if (!network) {
@@ -116,16 +247,69 @@ export class RoutingService {
 
                 destination:
                   sms.destination,
+
+                countryId:
+                  country.id,
+
+                countryCode:
+                  country.code,
               },
-              "Unable to determine mobile network for message.",
+              "Unable to determine mobile network from configured routing regex.",
             );
 
             return;
           }
 
-          span.setAttribute(
-            "routing.mobile_network_id",
-            network.mobileNetworkId,
+          /*
+           * At this point the repository has successfully resolved a
+           * mobile network for the destination.
+           *
+           * Log the regex that belongs to the selected network so that the
+           * routing decision can be correlated directly with the stored
+           * numbering allocation configuration.
+           */
+          span.setAttributes({
+            "routing.mobile_network_id":
+              network.id,
+
+            "routing.mobile_network_code":
+              network.code,
+
+            "routing.mobile_network_name":
+              network.name,
+
+            "routing.mobile_network_regex":
+              network.routingRegex ??
+              "",
+          });
+
+          this.logger.info(
+            {
+              messageId:
+                sms.id,
+
+              destination:
+                sms.destination,
+
+              countryId:
+                country.id,
+
+              countryCode:
+                country.code,
+
+              mobileNetworkId:
+                network.id,
+
+              mobileNetworkCode:
+                network.code,
+
+              mobileNetworkName:
+                network.name,
+
+              routingRegex:
+                network.routingRegex,
+            },
+            "Destination mobile network resolved using routing regex.",
           );
 
           // =================================================================
@@ -135,7 +319,7 @@ export class RoutingService {
           const routes =
             await this.repository.findRoutes(
               sms.clientId,
-              network.mobileNetworkId,
+              network.id,
             );
 
           if (
@@ -155,13 +339,53 @@ export class RoutingService {
                   sms.clientId,
 
                 mobileNetworkId:
-                  network.mobileNetworkId,
+                  network.id,
+
+                mobileNetworkCode:
+                  network.code,
               },
               "No active routes available for message.",
             );
 
             return;
           }
+
+          this.logger.debug(
+            {
+              messageId:
+                sms.id,
+
+              clientId:
+                sms.clientId,
+
+              mobileNetworkId:
+                network.id,
+
+              mobileNetworkCode:
+                network.code,
+
+              routeCount:
+                routes.length,
+
+              routes:
+                routes.map(
+                  (candidate) => ({
+                    routeId:
+                      candidate.id,
+
+                    connectorId:
+                      candidate.connectorId,
+
+                    priority:
+                      candidate.priority,
+
+                    transport:
+                      candidate.connector.transport,
+                  }),
+                ),
+            },
+            "Active routes retrieved for resolved mobile network.",
+          );
 
           // =================================================================
           // Inspect previous routing attempts
@@ -331,7 +555,10 @@ export class RoutingService {
                   sms.clientId,
 
                 mobileNetworkId:
-                  network.mobileNetworkId,
+                  network.id,
+
+                mobileNetworkCode:
+                  network.code,
 
                 attemptedRoutes:
                   attempts.length,
@@ -459,6 +686,12 @@ export class RoutingService {
                 route.priority,
 
               attemptNumber,
+
+              mobileNetworkId:
+                network.id,
+
+              mobileNetworkCode:
+                network.code,
             },
             "Message routed to connector client.",
           );
@@ -800,22 +1033,16 @@ export class RoutingService {
             return;
           }
 
-          const clientDlrStatus =
-            receipt.status === "DELIVERED"
-              ? "SUCCESS"
-              : "FAILED";
+          // -------------------------------------------------------------------
+          // Duplicate delivery receipt
+          // -------------------------------------------------------------------
 
-          await this.clientDlrPublisher.publish({
-            messageId:
-              attempt.messageId,
-
-            providerMessageId:
-              receipt.providerMessageId,
-
-            status:
-              clientDlrStatus,
-          });
-
+          /*
+           * applyDeliveryReceipt() is the authoritative idempotency check.
+           *
+           * Do not publish another client DLR when the database rejected
+           * this receipt because it had already been processed.
+           */
           if (!outcome.applied) {
             this.logger.debug(
               {
@@ -836,6 +1063,30 @@ export class RoutingService {
 
             return;
           }
+
+          // -------------------------------------------------------------------
+          // Publish client DLR
+          // -------------------------------------------------------------------
+
+          const clientDlrStatus =
+            receipt.status === "DELIVERED"
+              ? "SUCCESS"
+              : "FAILED";
+
+          await this.clientDlrPublisher.publish({
+            messageId:
+              attempt.messageId,
+
+            providerMessageId:
+              receipt.providerMessageId,
+
+            status:
+              clientDlrStatus,
+          });
+
+          // -------------------------------------------------------------------
+          // Success
+          // -------------------------------------------------------------------
 
           this.logger.info(
             {

@@ -32,42 +32,60 @@ export class RoutingRepository
 
   async findMobileNetworkForDestination(
     destination: string,
+    countryId: string,
   ) {
-    const candidates: string[] = [];
-
-    for (
-      let length = destination.length;
-      length > 0;
-      length--
-    ) {
-      candidates.push(
-        destination.slice(
-          0,
-          length,
-        ),
-      );
-    }
-
-    if (
-      candidates.length === 0
-    ) {
-      return null;
-    }
-
-    const matches =
-      await this.db.mobileNetworkPrefix.findMany({
+    const networks =
+      await this.db.mobileNetwork.findMany({
         where: {
-          prefix: {
-            in: candidates,
+          countryId,
+
+          status:
+            "ACTIVE",
+
+          routingRegex: {
+            not: null,
           },
-
-          enabled: true,
-        },
-
-        include: {
-          mobileNetwork: true,
         },
       });
+
+    const matches =
+      networks.filter(
+        (network) => {
+          if (
+            !network.routingRegex
+          ) {
+            return false;
+          }
+
+          /*
+           * Routing regexes are always evaluated from the beginning of the
+           * destination number.
+           *
+           * If the configured expression already starts with "^", preserve
+           * it. Otherwise anchor it here.
+           */
+          const pattern =
+            network.routingRegex.startsWith(
+              "^",
+            )
+              ? network.routingRegex
+              : `^${network.routingRegex}`;
+
+          try {
+            return new RegExp(
+              pattern,
+            ).test(destination);
+          } catch {
+            throw new Error(
+              `Invalid routing regex configured for mobile network ${network.id}: ${network.routingRegex}`,
+            );
+          }
+        },
+      );
+
+    // -----------------------------------------------------------------------
+    // No match
+    // -----------------------------------------------------------------------
 
     if (
       matches.length === 0
@@ -75,16 +93,36 @@ export class RoutingRepository
       return null;
     }
 
-    return matches.reduce(
-      (
-        longest,
-        current,
-      ) =>
-        current.prefix.length >
-          longest.prefix.length
-          ? current
-          : longest,
-    );
+    // -----------------------------------------------------------------------
+    // Multiple matches
+    // -----------------------------------------------------------------------
+
+    /*
+     * A destination must resolve to exactly one allocated mobile network.
+     *
+     * Multiple matches indicate a configuration error. We deliberately do
+     * not use priority here because mobile-network matching is based on
+     * numbering allocation, not route failover priority.
+     */
+
+    if (
+      matches.length > 1
+    ) {
+      throw new Error(
+        `Multiple mobile networks matched destination ${destination}: ${matches
+          .map(
+            (network) =>
+              network.code,
+          )
+          .join(", ")}`,
+      );
+    }
+
+    // -----------------------------------------------------------------------
+    // Single match
+    // -----------------------------------------------------------------------
+
+    return matches[0];
   }
 
   // =========================================================================
@@ -325,6 +363,7 @@ export class RoutingRepository
      * PENDING, DISPATCHED and SUBMITTING are internal lifecycle states
      * and must not be supplied as connector results.
      */
+
     if (
       data.status !==
       MessageRouteAttemptStatus.SUBMITTED &&
@@ -372,6 +411,7 @@ export class RoutingRepository
          * Once an attempt has reached a terminal state, don't allow a
          * duplicate or late result to change it.
          */
+
         if (
           attempt.status ===
           MessageRouteAttemptStatus.SUBMITTED ||
@@ -442,6 +482,7 @@ export class RoutingRepository
         // This does NOT mean the handset has received the message.
         //
         // A later delivery receipt must transition the message to DELIVERED.
+
         if (
           data.status ===
           MessageRouteAttemptStatus.SUBMITTED
@@ -492,6 +533,7 @@ export class RoutingRepository
         }
 
         // Connector definitively rejected/failed the message.
+
         if (
           data.status ===
           MessageRouteAttemptStatus.FAILED
@@ -687,13 +729,16 @@ export class RoutingRepository
               data.rawData
                 ? {
                   sourceAddress:
-                    data.rawData.sourceAddress,
+                    data.rawData
+                      .sourceAddress,
 
                   destinationAddress:
-                    data.rawData.destinationAddress,
+                    data.rawData
+                      .destinationAddress,
 
                   shortMessage:
-                    data.rawData.shortMessage,
+                    data.rawData
+                      .shortMessage,
                 }
                 : undefined,
 
