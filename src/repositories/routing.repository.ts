@@ -230,7 +230,13 @@ export class RoutingRepository
       where: {
         connectorId,
         providerMessageId,
-      },
+      }, include: {
+        message: {
+          include: {
+            senderId: true
+          }
+        }
+      }
     });
   }
 

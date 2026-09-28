@@ -1077,11 +1077,34 @@ export class RoutingService {
             messageId:
               attempt.messageId,
 
+            publicId:
+              attempt.message.publicId,
+
             providerMessageId:
               receipt.providerMessageId,
 
             status:
               clientDlrStatus,
+
+            sourceAddress:
+              receipt.rawData?.sourceAddress ??
+              attempt.message.senderId?.sender,
+
+            destinationAddress:
+              receipt.rawData?.destinationAddress ??
+              attempt.message.destination,
+
+            submittedAt:
+              receipt.submittedAt,
+
+            completedAt:
+              receipt.completedAt,
+
+            errorCode:
+              receipt.errorCode,
+
+            errorMessage:
+              receipt.errorMessage,
           });
 
           // -------------------------------------------------------------------

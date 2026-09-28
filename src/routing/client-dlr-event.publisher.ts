@@ -28,8 +28,28 @@ export type ClientDlrStatus =
 
 export interface ClientDlr {
   messageId: string;
+  publicId: string;
   providerMessageId: string;
-  status: ClientDlrStatus;
+
+  status:
+  | "SUCCESS"
+  | "FAILED"
+  | "UNKNOWN";
+
+  sourceAddress?: string;
+  destinationAddress?: string;
+
+  sourceAddrTon?: number;
+  sourceAddrNpi?: number;
+
+  destinationAddrTon?: number;
+  destinationAddrNpi?: number;
+
+  submittedAt?: Date;
+  completedAt?: Date;
+
+  errorCode?: string;
+  errorMessage?: string;
 }
 
 @Injectable()
