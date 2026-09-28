@@ -147,10 +147,6 @@ export class RoutingDeliveryReceiptConsumer
               receipt,
             );
           },
-
-          {
-            noAck: false,
-          },
         );
 
       this.logger.info(

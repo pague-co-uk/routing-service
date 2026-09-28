@@ -86,7 +86,7 @@ export class ClientDlrPublisher {
 
           "messaging.destination":
             this.config.routing
-              .clientDlrQueue,
+              .clientDlrExchange,
         });
 
         this.logger.info(
@@ -100,17 +100,17 @@ export class ClientDlrPublisher {
             status:
               event.status,
 
-            queue:
+            exchange:
               this.config.routing
-                .clientDlrQueue,
+                .clientDlrExchange,
           },
-          "Publishing client delivery receipt.",
+          "Publishing client delivery receipt to fanout exchange.",
         );
 
         try {
-          await this.queue.publish(
+          await this.queue.publishToExchange(
             this.config.routing
-              .clientDlrQueue,
+              .clientDlrExchange,
             event,
           );
 
@@ -125,11 +125,11 @@ export class ClientDlrPublisher {
               status:
                 event.status,
 
-              queue:
+              exchange:
                 this.config.routing
-                  .clientDlrQueue,
+                  .clientDlrExchange,
             },
-            "Client delivery receipt published.",
+            "Client delivery receipt published to fanout exchange.",
           );
         } catch (error) {
           recordException(error);
@@ -145,14 +145,14 @@ export class ClientDlrPublisher {
               status:
                 event.status,
 
-              queue:
+              exchange:
                 this.config.routing
-                  .clientDlrQueue,
+                  .clientDlrExchange,
 
               err:
                 error,
             },
-            "Failed to publish client delivery receipt.",
+            "Failed to publish client delivery receipt to fanout exchange.",
           );
 
           throw error;
@@ -161,4 +161,3 @@ export class ClientDlrPublisher {
     );
   }
 }
-

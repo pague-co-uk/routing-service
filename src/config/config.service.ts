@@ -124,13 +124,45 @@ export class AppConfigService {
         this.config.getOrThrow<string>(
           "routing.resultQueue",
         ),
+
       deliveryReceiptQueue:
         this.config.getOrThrow<string>(
           "routing.deliveryReceiptQueue",
         ),
+
+      /*
+       * Existing client DLR queue.
+       *
+       * Retained during the migration so
+       * existing consumers continue to work.
+       */
       clientDlrQueue:
         this.config.getOrThrow<string>(
           "routing.clientDlrQueue",
+        ),
+
+      /*
+       * New client DLR fanout exchange.
+       */
+      clientDlrExchange:
+        this.config.getOrThrow<string>(
+          "routing.clientDlrExchange",
+        ),
+
+      /*
+       * Dedicated SMPP client DLR queue.
+       */
+      clientDlrSmppQueue:
+        this.config.getOrThrow<string>(
+          "routing.clientDlrSmppQueue",
+        ),
+
+      /*
+       * Dedicated webhook client DLR queue.
+       */
+      clientDlrWebhookQueue:
+        this.config.getOrThrow<string>(
+          "routing.clientDlrWebhookQueue",
         ),
     };
   }

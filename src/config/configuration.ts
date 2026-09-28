@@ -168,11 +168,38 @@ export default () => ({
     resultQueue:
       process.env.ROUTING_RESULT_QUEUE ??
       "sms.route.result",
+
     deliveryReceiptQueue:
       process.env.ROUTING_DELIVERY_RECEIPT_QUEUE ??
       "sms.route.delivery-receipt",
+
+    /*
+     * Existing client DLR queue.
+     *
+     * Retained during the migration so existing
+     * applications continue to function.
+     */
     clientDlrQueue:
       process.env.ROUTING_CLIENT_DLR_QUEUE ??
       "sms.client.dlr",
+
+    /*
+     * New client DLR fanout exchange.
+     */
+    clientDlrExchange:
+      process.env.ROUTING_CLIENT_DLR_EXCHANGE ??
+      "sms.client.dlr",
+
+    /*
+     * Dedicated queues bound to the client DLR
+     * fanout exchange.
+     */
+    clientDlrSmppQueue:
+      process.env.ROUTING_CLIENT_DLR_SMPP_QUEUE ??
+      "sms.client.dlr.smpp",
+
+    clientDlrWebhookQueue:
+      process.env.ROUTING_CLIENT_DLR_WEBHOOK_QUEUE ??
+      "sms.client.dlr.webhook",
   },
 });

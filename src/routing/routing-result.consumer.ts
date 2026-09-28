@@ -145,10 +145,6 @@ export class RoutingResultConsumer
               result,
             );
           },
-
-          {
-            noAck: false,
-          },
         );
 
       this.logger.info(

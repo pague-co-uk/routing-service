@@ -121,15 +121,51 @@ export const configValidationSchema =
         .min(1)
         .max(1000)
         .default(10),
+
     ROUTING_DELIVERY_RECEIPT_QUEUE:
       Joi.string()
         .default(
           "sms.route.delivery-receipt",
         ),
+
+    /*
+     * Existing client DLR queue.
+     *
+     * Retained during the migration so
+     * existing applications continue to
+     * function.
+     */
     ROUTING_CLIENT_DLR_QUEUE:
       Joi.string()
         .default(
           "sms.client.dlr",
+        ),
+
+    /*
+     * New client DLR fanout exchange.
+     */
+    ROUTING_CLIENT_DLR_EXCHANGE:
+      Joi.string()
+        .default(
+          "sms.client.dlr",
+        ),
+
+    /*
+     * Dedicated SMPP client DLR queue.
+     */
+    ROUTING_CLIENT_DLR_SMPP_QUEUE:
+      Joi.string()
+        .default(
+          "sms.client.dlr.smpp",
+        ),
+
+    /*
+     * Dedicated webhook client DLR queue.
+     */
+    ROUTING_CLIENT_DLR_WEBHOOK_QUEUE:
+      Joi.string()
+        .default(
+          "sms.client.dlr.webhook",
         ),
 
     // =========================================================================

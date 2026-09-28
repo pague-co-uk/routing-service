@@ -148,9 +148,6 @@ export class RoutingConsumer
               message,
             );
           },
-          {
-            noAck: false,
-          },
         );
 
       this.logger.info(
