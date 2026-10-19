@@ -2,6 +2,11 @@ import Joi from "joi";
 
 export const configValidationSchema =
   Joi.object({
+    ROUTING_RETRY_MAX_RETRIES: Joi.number().integer().min(0).max(100).default(3),
+    ROUTING_RETRY_INITIAL_DELAY_MS: Joi.number().integer().min(1).max(2147483647).default(1000),
+    ROUTING_RETRY_MULTIPLIER: Joi.number().greater(1).default(2),
+    ROUTING_RETRY_MAX_DELAY_MS: Joi.number().integer().min(Joi.ref("ROUTING_RETRY_INITIAL_DELAY_MS")).max(2147483647).default(30000),
+
     // =========================================================================
     // Application
     // =========================================================================

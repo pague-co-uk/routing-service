@@ -20,9 +20,7 @@ import {
   RoutingRepository,
 } from "../repositories/routing.repository.js";
 
-import {
-  ConnectorDispatchPublisher,
-} from "./connector-dispatch.publisher.js";
+import { AppConfigService } from "../config/config.service.js";
 
 import type {
   RoutingMessage,
@@ -54,8 +52,8 @@ export class RoutingService {
     private readonly countryRepository:
       CountryRepository,
 
-    private readonly dispatch:
-      ConnectorDispatchPublisher,
+    private readonly config:
+      AppConfigService,
 
     private readonly clientDlrPublisher:
       ClientDlrPublisher,
@@ -81,8 +79,10 @@ export class RoutingService {
             {
               messageId:
                 message.messageId,
+              event: message.manualRetryEventId ? "routing.manual_retry.received" : "routing.message.received",
+              manualRetryEventId: message.manualRetryEventId,
             },
-            "Starting message routing.",
+            message.manualRetryEventId ? "Manual message retry received by routing." : "Starting message routing.",
           );
 
           // =================================================================
@@ -152,7 +152,7 @@ export class RoutingService {
           if (!country) {
             await this.repository
               .markMessageFailed(
-                sms.id,
+                sms.id, sms.updatedAt,
               );
 
             this.logger.error(
@@ -237,7 +237,7 @@ export class RoutingService {
           if (!network) {
             await this.repository
               .markMessageFailed(
-                sms.id,
+                sms.id, sms.updatedAt,
               );
 
             this.logger.error(
@@ -327,7 +327,7 @@ export class RoutingService {
           ) {
             await this.repository
               .markMessageFailed(
-                sms.id,
+                sms.id, sms.updatedAt,
               );
 
             this.logger.error(
@@ -392,7 +392,7 @@ export class RoutingService {
           // =================================================================
 
           const attempts =
-            await this.repository.findAttempts(
+            await this.repository.findRoutingCycleAttempts(
               sms.id,
             );
 
@@ -543,7 +543,7 @@ export class RoutingService {
           if (!route) {
             await this.repository
               .markMessageFailed(
-                sms.id,
+                sms.id, sms.updatedAt,
               );
 
             this.logger.error(
@@ -569,9 +569,6 @@ export class RoutingService {
             return;
           }
 
-          const attemptNumber =
-            attempts.length + 1;
-
           // =================================================================
           // Create routing attempt
           // =================================================================
@@ -581,6 +578,7 @@ export class RoutingService {
            *
            * 1. Create MessageRouteAttempt
            * 2. Move Message to ROUTED
+           * 3. Persist the connector dispatch in the outbox
            *
            * The unique constraint on:
            *
@@ -601,11 +599,11 @@ export class RoutingService {
                 connectorId:
                   route.connectorId,
 
-                attemptNumber,
-
                 priority:
                   route.priority,
-              });
+              }, this.config.routing);
+
+          if (!attempt) return;
 
           span.setAttributes({
             "routing.attempt_id":
@@ -621,7 +619,7 @@ export class RoutingService {
               route.priority,
 
             "routing.attempt":
-              attemptNumber,
+              attempt.attemptNumber,
 
             "routing.transport":
               route.connector.transport,
@@ -643,23 +641,8 @@ export class RoutingService {
            * The connectorId travels with the message so the receiving
            * client can load the connector and resolve its provider.
            */
-          await this.dispatch.publish(
-            {
-              messageId:
-                sms.id,
-
-              attemptId:
-                attempt.id,
-
-              routeId:
-                route.id,
-
-              connectorId:
-                route.connectorId,
-            },
-
-            route.connector.transport,
-          );
+          // The transaction already persisted the dispatch outbox event.
+          // OutboxPublisher delivers it when availableAt is due.
 
           // =================================================================
           // Success
@@ -685,7 +668,10 @@ export class RoutingService {
               priority:
                 route.priority,
 
-              attemptNumber,
+              attemptNumber: attempt.attemptNumber,
+              event: message.manualRetryEventId ? "routing.manual_retry.scheduled" : "routing.submission.scheduled",
+              manualRetryEventId: message.manualRetryEventId,
+              scheduledAt: attempt.scheduledAt,
 
               mobileNetworkId:
                 network.id,
@@ -693,7 +679,7 @@ export class RoutingService {
               mobileNetworkCode:
                 network.code,
             },
-            "Message routed to connector client.",
+            "Message scheduled for connector client.",
           );
         } catch (error) {
           recordException(error);
@@ -820,92 +806,27 @@ export class RoutingService {
           return;
         }
 
-        const outcome =
-          await this.repository.applyAttemptResult(
-            result,
-          );
-
-        if (!outcome.attempt) {
-          return;
-        }
-
-        /*
-         * Duplicate result.
-         *
-         * Most importantly, do NOT call route() again.
-         */
-        if (!outcome.applied) {
-          this.logger.debug(
-            {
-              messageId:
-                result.messageId,
-
-              attemptId:
-                result.attemptId,
-
-              existingStatus:
-                outcome.attempt.status,
-
-              resultStatus:
-                result.status,
-            },
-            "Ignoring duplicate connector result for finalized routing attempt.",
-          );
-
-          return;
-        }
-
-        this.logger.info(
-          {
-            messageId:
-              result.messageId,
-
-            attemptId:
-              result.attemptId,
-
-            status:
-              result.status,
-
-            providerMessageId:
-              result.providerMessageId,
-          },
-          "Connector result applied to routing attempt.",
+        const outcome = await this.repository.processSubmissionResult(
+          result, this.config.retryPolicy, this.config.routing,
         );
-
-        /*
-         * Only a definitive FAILED result can trigger failover.
-         *
-         * SUBMITTED:
-         *   Provider accepted the message.
-         *
-         * UNKNOWN:
-         *   We cannot determine whether the provider accepted it.
-         *
-         * FAILED:
-         *   Provider definitively failed the attempt.
-         */
-        if (
-          result.status !==
-          MessageRouteAttemptStatus.FAILED
-        ) {
-          return;
-        }
-
-        this.logger.warn(
-          {
-            messageId:
-              result.messageId,
-
-            attemptId:
-              result.attemptId,
-          },
-          "Routing attempt failed. Evaluating next route.",
-        );
-
-        await this.route({
-          messageId:
-            result.messageId,
-        });
+        this.logger.info({
+          event: `routing.submission.${outcome.decision}`,
+          messageId: result.messageId, attemptId: result.attemptId,
+          routeId: result.routeId, connectorId: result.connectorId,
+          resultStatus: result.status, errorCode: result.errorCode,
+          applied: outcome.applied,
+          nextAttemptId: outcome.nextAttempt?.id,
+          nextRouteId: outcome.nextAttempt?.routeId,
+          nextConnectorId: outcome.nextAttempt?.connectorId,
+          attemptNumber: outcome.nextAttempt?.attemptNumber,
+          retryNumber: "retryNumber" in outcome ? outcome.retryNumber : undefined,
+          maxRetries: this.config.retryPolicy.maxRetries,
+          delayMs: "delayMs" in outcome ? outcome.delayMs : undefined,
+          scheduledAt: outcome.nextAttempt?.scheduledAt,
+        }, outcome.decision === "retry" ? "Message retry scheduled on the same route with exponential backoff."
+          : outcome.decision === "failover" ? "Route retry budget exhausted or route unavailable; failing over to the next route."
+          : outcome.decision === "exhausted" ? "Message submission failed; eligible routes are exhausted."
+          : "Connector result processed.");
       },
     );
   }

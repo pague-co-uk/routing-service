@@ -232,32 +232,51 @@ model Client {
 
   /// Company Information
   companyName String @db.VarChar(255)
+
   displayName String @db.VarChar(255)
 
   /// Contact Information
-  email String  @unique @db.VarChar(255)
+  email String @unique @db.VarChar(255)
+
   phone String? @db.VarChar(30)
 
   /// Configuration
-  status             ClientStatus @default(ACTIVE)
-  rateLimitPerSecond Int          @default(20)
-  timezone           String       @default("Europe/London") @db.VarChar(64)
-  /// Extension Point
-  metadata           Json?
+  status ClientStatus @default(ACTIVE)
+
+  rateLimitPerSecond Int @default(20)
+
+  timezone String @default("Europe/London") @db.VarChar(64)
+
+  metadata Json?
 
   /// Audit
-  createdAt            DateTime              @default(now())
-  updatedAt            DateTime              @updatedAt
-  users                User[]
-  apiKeys              ApiKey[]
+  createdAt DateTime @default(now())
+
+  updatedAt DateTime @updatedAt
+
+  users User[]
+
+  apiKeys ApiKey[]
+
   authenticationEvents AuthenticationEvent[]
-  floatLedgerEntries   FloatLedgerEntry[]
-  messages             Message[]
-  smppAccounts         SmppAccount[]
-  senderIds            SenderId[]
-  routes               Route[]
-  webhookEndpoints     WebhookEndpoint[]
-  auditLogs            AuditLog[]
+
+  floatLedgerEntries FloatLedgerEntry[]
+
+  messages Message[]
+
+  smppAccounts SmppAccount[]
+
+  senderIds SenderId[]
+
+  routes Route[]
+
+  webhookEndpoints WebhookEndpoint[]
+
+  auditLogs AuditLog[]
+
+  clientServices ClientService[]
+
+  transactions Transaction[]
 
   @@index([status])
   @@index([createdAt])
@@ -341,6 +360,8 @@ model Role {
 
   description String? @db.VarChar(255)
 
+  priority Int
+
   system Boolean @default(true)
 
   /// Relationships
@@ -350,8 +371,10 @@ model Role {
 
   /// Audit
   createdAt DateTime @default(now())
+
   updatedAt DateTime @updatedAt
 
+  @@index([priority])
   @@map("roles")
 }
 
@@ -446,7 +469,8 @@ model ApiKey {
   /// Audit
   createdAt DateTime @default(now())
 
-  updatedAt    DateTime                     @updatedAt
+  updatedAt DateTime @updatedAt
+
   capabilities ApiKeyCapabilityAssignment[]
 
   @@index([clientId])
@@ -542,8 +566,9 @@ model AuthenticationEvent {
   authenticationMethod AuthenticationMethod
 
   sessionId String?
+
   /// Relationships
-  user      User?   @relation(fields: [userId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull, onUpdate: Cascade)
 
   client Client? @relation(fields: [clientId], references: [id], onDelete: SetNull, onUpdate: Cascade)
 
@@ -572,18 +597,21 @@ model FloatLedgerEntry {
 
   publicId String @unique @db.VarChar(20)
 
-  clientId    String  @db.Char(36)
+  clientId String @db.Char(36)
+
   createdById String? @db.Char(36)
 
-  client    Client @relation(fields: [clientId], references: [id], onDelete: Restrict)
-  createdBy User?  @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  client Client @relation(fields: [clientId], references: [id], onDelete: Restrict)
+
+  createdBy User? @relation(fields: [createdById], references: [id], onDelete: SetNull)
 
   transactionType LedgerTransactionType
 
   credits Int
 
   referenceType LedgerReferenceType
-  referenceId   String?             @db.Char(36)
+
+  referenceId String? @db.Char(36)
 
   description String? @db.VarChar(255)
 
@@ -604,15 +632,18 @@ model Message {
   publicId String @unique @db.VarChar(20)
 
   /// Foreign Keys
-  clientId   String  @db.Char(36)
+  clientId String @db.Char(36)
+
   senderIdId String? @db.Char(36)
 
   /// Relationships
-  client   Client    @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  client Client @relation(fields: [clientId], references: [id], onDelete: Restrict)
+
   senderId SenderId? @relation(fields: [senderIdId], references: [id], onDelete: SetNull)
 
   routeAttempts MessageRouteAttempt[]
-  statusEvents  MessageStatusEvent[]
+
+  statusEvents MessageStatusEvent[]
 
   /// Recipient
   destination String @db.VarChar(20)
@@ -637,11 +668,14 @@ model Message {
 
   /// Audit
   createdAt DateTime @default(now())
+
   updatedAt DateTime @updatedAt
 
   webhookDeliveries WebhookDelivery[]
 
   @@index([clientId])
+  @@index([createdAt, id])
+  @@index([clientId, createdAt, id])
   @@index([destination])
   @@index([currentStatus])
   @@index([routingStatus])
@@ -654,8 +688,10 @@ model MessageRouteAttempt {
   id String @id @default(uuid()) @db.Char(36)
 
   /// Foreign Keys
-  messageId   String @db.Char(36)
-  routeId     String @db.Char(36)
+  messageId String @db.Char(36)
+
+  routeId String @db.Char(36)
+
   connectorId String @db.Char(36)
 
   /// Relationships
@@ -685,6 +721,9 @@ model MessageRouteAttempt {
   errorMessage String? @db.VarChar(255)
 
   /// Timing
+  /// Earliest dispatch time; null for legacy or immediately dispatched attempts.
+  scheduledAt DateTime?
+
   dispatchedAt DateTime?
 
   startedAt DateTime?
@@ -701,7 +740,7 @@ model MessageRouteAttempt {
   updatedAt DateTime @updatedAt
 
   @@unique([messageId, attemptNumber])
-  @@unique([messageId, routeId])
+  @@index([messageId, routeId])
   @@index([messageId])
   @@index([routeId])
   @@index([connectorId])
@@ -720,11 +759,12 @@ model MessageStatusEvent {
   attemptId String? @db.Char(36)
 
   /// Relationships
-  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
 
-  attempt MessageRouteAttempt? @relation(fields: [attemptId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  attempt MessageRouteAttempt? @relation(fields: [attemptId], references: [id], onDelete: SetNull)
+
   /// Status
-  status  MessageStatus
+  status MessageStatus
 
   /// Source
   source String @db.VarChar(50)
@@ -746,31 +786,25 @@ model MessageStatusEvent {
 
 model SmppAccount {
   /// Primary Key
-
   id String @id @default(uuid()) @db.Char(36)
 
   /// Public Identifier
-
   publicId String @unique @db.VarChar(20)
 
   /// Foreign Keys
-
   clientId String @db.Char(36)
 
   /// Relationships
-
   client Client @relation(fields: [clientId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   ipAllowlist SmppAccountIpAllowlist[]
 
   /// Credentials
-
   systemId String @unique @db.VarChar(50)
 
   passwordHash String @db.VarChar(255)
 
   /// Configuration
-
   status SmppAccountStatus @default(ACTIVE)
 
   maxConcurrentBinds Int @default(1)
@@ -778,7 +812,6 @@ model SmppAccount {
   enquireLinkInterval Int @default(30)
 
   /// Audit
-
   createdAt DateTime @default(now())
 
   updatedAt DateTime @updatedAt
@@ -790,23 +823,18 @@ model SmppAccount {
 
 model SmppAccountIpAllowlist {
   /// Primary Key
-
   id String @id @default(uuid()) @db.Char(36)
 
   /// Foreign Keys
-
   smppAccountId String @db.Char(36)
 
   /// Relationships
-
   smppAccount SmppAccount @relation(fields: [smppAccountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
   /// Network
-
   ipAddress String @db.VarChar(45)
 
   /// Audit
-
   createdAt DateTime @default(now())
 
   updatedAt DateTime @updatedAt
@@ -893,9 +921,9 @@ model WebhookDelivery {
   messageId String @db.Char(36)
 
   /// Relationships
-  webhookEndpoint WebhookEndpoint @relation(fields: [webhookEndpointId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  webhookEndpoint WebhookEndpoint @relation(fields: [webhookEndpointId], references: [id], onDelete: Cascade)
 
-  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
 
   /// Delivery
   attemptNumber Int @default(1)
@@ -966,6 +994,7 @@ model ApiKeyCapability {
   apiKeys ApiKeyCapabilityAssignment[]
 
   createdAt DateTime @default(now())
+
   updatedAt DateTime @updatedAt
 
   @@index([module])
@@ -973,12 +1002,13 @@ model ApiKeyCapability {
 }
 
 model ApiKeyCapabilityAssignment {
-  apiKeyId     String @db.Char(36)
+  apiKeyId String @db.Char(36)
+
   capabilityId String @db.Char(36)
 
-  apiKey ApiKey @relation(fields: [apiKeyId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  apiKey ApiKey @relation(fields: [apiKeyId], references: [id], onDelete: Cascade)
 
-  capability ApiKeyCapability @relation(fields: [capabilityId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  capability ApiKeyCapability @relation(fields: [capabilityId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
 
@@ -1016,8 +1046,10 @@ model OutboxEvent {
   lastError String? @db.VarChar(1000)
 
   /// Audit
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  createdAt DateTime @default(now())
+
+  updatedAt DateTime @updatedAt
+
   processingAt DateTime?
 
   @@index([status, availableAt])
@@ -1040,13 +1072,9 @@ model MobileNetwork {
   country Country @relation(fields: [countryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   /// Regular expression describing the numbering range
-
   /// allocated to this mobile network.
-
   ///
-
   /// Example:
-
   /// ^265(?:88|89|90)
 
   routingRegex String? @db.VarChar(500)
@@ -1086,6 +1114,7 @@ model Connector {
   messageRouteAttempts MessageRouteAttempt[]
 
   createdAt DateTime @default(now())
+
   updatedAt DateTime @updatedAt
 
   @@index([provider])
@@ -1118,6 +1147,7 @@ model Route {
   messageRouteAttempts MessageRouteAttempt[]
 
   createdAt DateTime @default(now())
+
   updatedAt DateTime @updatedAt
 
   @@unique([clientId, mobileNetworkId, priority])
@@ -1140,7 +1170,10 @@ model Country {
 
   mobileNetworks MobileNetwork[]
 
+  currencies CountryCurrency[]
+
   createdAt DateTime @default(now())
+
   updatedAt DateTime @updatedAt
 
   @@map("countries")
@@ -1153,12 +1186,296 @@ model CountryCallingCode {
 
   callingCode String @db.VarChar(10)
 
-  country Country @relation(fields: [countryId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  country Country @relation(fields: [countryId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
+
   updatedAt DateTime @updatedAt
 
   @@unique([countryId, callingCode])
   @@index([callingCode])
   @@map("country_calling_codes")
+}
+
+// ============================================================================
+// Pague Platform Services & Payments
+// ============================================================================
+
+enum ServiceCategory {
+  MESSAGING
+  PAYMENTS
+}
+
+enum ServiceStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum ClientServiceStatus {
+  ACTIVE
+  SUSPENDED
+  DISABLED
+}
+
+enum PaymentProviderStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum TransactionStatus {
+  PENDING
+  PROCESSING
+  SUCCESS
+  FAILED
+  REVERSED
+  CANCELLED
+}
+
+model TransactionType {
+  id String @id @default(uuid()) @db.Char(36)
+
+  code String @unique @db.VarChar(50)
+
+  name String @unique @db.VarChar(100)
+
+  description String? @db.VarChar(255)
+
+  active Boolean @default(true)
+
+  transactions Transaction[]
+
+  createdAt DateTime @default(now())
+
+  updatedAt DateTime @updatedAt
+
+  @@index([active])
+  @@map("transaction_types")
+}
+
+model Service {
+  id String @id @default(uuid()) @db.Char(36)
+
+  code String @unique @db.VarChar(50)
+
+  name String @db.VarChar(100)
+
+  description String? @db.VarChar(255)
+
+  category ServiceCategory
+
+  status ServiceStatus @default(DISABLED)
+
+  metadata Json?
+
+  clientServices ClientService[]
+
+  providerServices ProviderService[]
+
+  createdAt DateTime @default(now())
+
+  updatedAt DateTime @updatedAt
+
+  @@index([category])
+  @@index([status])
+  @@map("services")
+}
+
+model ClientService {
+  id String @id @default(uuid()) @db.Char(36)
+
+  clientId String @db.Char(36)
+
+  serviceId String @db.Char(36)
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  status ClientServiceStatus @default(ACTIVE)
+
+  configuration Json?
+
+  enabledAt DateTime @default(now())
+
+  disabledAt DateTime?
+
+  transactions Transaction[]
+
+  createdAt DateTime @default(now())
+
+  updatedAt DateTime @updatedAt
+
+  @@unique([clientId, serviceId])
+  @@index([clientId])
+  @@index([serviceId])
+  @@index([status])
+  @@map("client_services")
+}
+
+model PaymentProvider {
+  id String @id @default(uuid()) @db.Char(36)
+
+  code String @unique @db.VarChar(50)
+
+  name String @db.VarChar(100)
+
+  description String? @db.VarChar(255)
+
+  status PaymentProviderStatus @default(ACTIVE)
+
+  metadata Json?
+
+  providerServices ProviderService[]
+
+  transactions Transaction[]
+
+  createdAt DateTime @default(now())
+
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@map("payment_providers")
+}
+
+model ProviderService {
+  id String @id @default(uuid()) @db.Char(36)
+
+  providerId String @db.Char(36)
+
+  serviceId String @db.Char(36)
+
+  provider PaymentProvider @relation(fields: [providerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  externalServiceCode String? @db.VarChar(100)
+
+  configuration Json?
+
+  active Boolean @default(true)
+
+  priority Int @default(100)
+
+  transactions Transaction[]
+
+  createdAt DateTime @default(now())
+
+  updatedAt DateTime @updatedAt
+
+  @@unique([providerId, serviceId])
+  @@index([providerId])
+  @@index([serviceId])
+  @@index([active])
+  @@map("provider_services")
+}
+
+model Currency {
+  id String @id @default(uuid()) @db.Char(36)
+
+  code String @unique @db.Char(3)
+
+  numericCode String? @unique @db.Char(3)
+
+  name String @unique @db.VarChar(100)
+
+  symbol String? @db.VarChar(10)
+
+  decimalDigits Int @default(2)
+
+  active Boolean @default(true)
+
+  countries CountryCurrency[]
+
+  transactions Transaction[]
+
+  createdAt DateTime @default(now())
+
+  updatedAt DateTime @updatedAt
+
+  @@index([active])
+  @@map("currencies")
+}
+
+model CountryCurrency {
+  countryId String @db.Char(36)
+
+  currencyId String @db.Char(36)
+
+  country Country @relation(fields: [countryId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  currency Currency @relation(fields: [currencyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  isPrimary Boolean @default(false)
+
+  isOfficial Boolean @default(true)
+
+  createdAt DateTime @default(now())
+
+  updatedAt DateTime @updatedAt
+
+  @@id([countryId, currencyId])
+  @@index([currencyId])
+  @@index([countryId, isPrimary])
+  @@map("country_currencies")
+}
+
+model Transaction {
+  id String @id @default(uuid()) @db.Char(36)
+
+  publicId String @unique @db.VarChar(20)
+
+  clientId String @db.Char(36)
+
+  clientServiceId String @db.Char(36)
+
+  providerId String? @db.Char(36)
+
+  providerServiceId String? @db.Char(36)
+
+  currencyId String @db.Char(36)
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  clientService ClientService @relation(fields: [clientServiceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  provider PaymentProvider? @relation(fields: [providerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  providerService ProviderService? @relation(fields: [providerServiceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  currency Currency @relation(fields: [currencyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  transactionTypeId String @db.Char(36)
+
+  transactionType TransactionType @relation(fields: [transactionTypeId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  status TransactionStatus @default(PENDING)
+
+  reference String @db.VarChar(100)
+
+  providerReference String? @db.VarChar(255)
+
+  amount Decimal @db.Decimal(19, 4)
+
+  description String? @db.VarChar(255)
+
+  metadata Json?
+
+  providerResponse Json?
+
+  processedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  updatedAt DateTime @updatedAt
+
+  @@unique([clientId, reference])
+  @@index([clientId])
+  @@index([clientServiceId])
+  @@index([providerId])
+  @@index([providerServiceId])
+  @@index([currencyId])
+  @@index([status])
+  @@index([providerReference])
+  @@index([createdAt])
+  @@map("transactions")
 }

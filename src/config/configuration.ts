@@ -153,6 +153,12 @@ export default () => ({
   // ===========================================================================
 
   routing: {
+    retryPolicy: {
+      maxRetries: Number(process.env.ROUTING_RETRY_MAX_RETRIES ?? "3"),
+      initialDelayMs: Number(process.env.ROUTING_RETRY_INITIAL_DELAY_MS ?? "1000"),
+      multiplier: Number(process.env.ROUTING_RETRY_MULTIPLIER ?? "2"),
+      maxDelayMs: Number(process.env.ROUTING_RETRY_MAX_DELAY_MS ?? "30000"),
+    },
     consumerQueue:
       process.env.ROUTING_CONSUMER_QUEUE ??
       "sms.queued",

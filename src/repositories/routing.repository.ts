@@ -4,6 +4,8 @@ import {
 } from "@nestjs/common";
 
 import {
+  ConnectorTransport,
+  Prisma,
   MessageRouteAttemptStatus,
   MessageStatus,
   RouteStatus,
@@ -15,6 +17,11 @@ import {
   Database,
   DatabaseRepository,
 } from "../database/database.repository.js";
+
+import { retryDelay, type RetryPolicy } from "../routing/retry/retry-policy.js";
+import type { RoutingResult } from "../routing/types/routing-result.js";
+
+interface DispatchQueues { httpQueue: string; smppQueue: string; }
 
 @Injectable()
 export class RoutingRepository
@@ -175,6 +182,20 @@ export class RoutingRepository
         attemptNumber: "asc",
       },
     });
+  }
+
+  private async currentCycleAttempts(messageId: string, attempts: Awaited<ReturnType<RoutingRepository["findAttempts"]>>) {
+    const manualRetry = await this.db.messageStatusEvent.findFirst({
+      where: { messageId, source: "manual-retry", status: "QUEUED" },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    });
+    const boundary = manualRetry?.attemptId ? attempts.find(item => item.id === manualRetry.attemptId)?.attemptNumber : 0;
+    if (manualRetry?.attemptId && boundary === undefined) throw new Error("Manual retry history is inconsistent.");
+    return attempts.filter(item => item.attemptNumber > (boundary ?? 0));
+  }
+
+  async findRoutingCycleAttempts(messageId: string) {
+    return this.currentCycleAttempts(messageId, await this.findAttempts(messageId));
   }
 
   async findAttempt(
@@ -357,6 +378,7 @@ export class RoutingRepository
       errorCode?: string;
       errorMessage?: string;
     },
+    finalFailure = true,
   ) {
     // =========================================================================
     // Validate result status
@@ -458,6 +480,8 @@ export class RoutingRepository
               errorMessage:
                 data.errorMessage,
 
+              completedAt: now,
+
               submittedAt:
                 data.status ===
                   MessageRouteAttemptStatus.SUBMITTED
@@ -544,16 +568,12 @@ export class RoutingRepository
           data.status ===
           MessageRouteAttemptStatus.FAILED
         ) {
-          await db.message.update({
-            where: {
-              id: attempt.messageId,
-            },
-
-            data: {
-              currentStatus:
-                MessageStatus.FAILED,
-            },
-          });
+          if (finalFailure) {
+            await db.message.update({
+              where: { id: attempt.messageId },
+              data: { currentStatus: MessageStatus.FAILED },
+            });
+          }
 
           await db.messageStatusEvent.create({
             data: {
@@ -564,7 +584,7 @@ export class RoutingRepository
                 attempt.id,
 
               status:
-                MessageStatus.FAILED,
+                finalFailure ? MessageStatus.FAILED : MessageStatus.ROUTED,
 
               source:
                 "routing",
@@ -573,13 +593,11 @@ export class RoutingRepository
                 data.errorMessage ??
                 "Message submission to provider failed.",
 
-              rawData:
-                data.errorCode
-                  ? {
-                    errorCode:
-                      data.errorCode,
-                  }
-                  : undefined,
+              rawData: {
+                attemptStatus: "FAILED",
+                errorCode: data.errorCode ?? null,
+                finalFailure,
+              },
 
               createdAt:
                 now,
@@ -777,9 +795,19 @@ export class RoutingRepository
 
   async markMessageFailed(
     messageId: string,
+    expectedUpdatedAt?: Date,
   ) {
     return this.transaction(
       async (db) => {
+        await this.lockMessage(db, messageId);
+        const messageState = await db.message.findUnique({ where: { id: messageId } });
+        if (expectedUpdatedAt && messageState && +messageState.updatedAt !== +expectedUpdatedAt) return null;
+        const latest = await db.messageRouteAttempt.findFirst({
+          where: { messageId }, orderBy: { attemptNumber: "desc" },
+        });
+        if (!messageState || ["SUBMITTED", "DELIVERED", "EXPIRED", "FAILED"].includes(messageState.currentStatus) ||
+            (latest && latest.status !== "FAILED")) return null;
+
         const now =
           new Date();
 
@@ -822,81 +850,122 @@ export class RoutingRepository
   // Transaction
   // =========================================================================
 
-  async createAttemptAndMarkRouted(
-    data: {
-      messageId: string;
-      routeId: string;
-      connectorId: string;
-      attemptNumber: number;
-      priority: number;
-    },
+  private async lockMessage(db: Prisma.TransactionClient, messageId: string) {
+    await db.$queryRaw`SELECT id FROM messages WHERE id = ${messageId} FOR UPDATE`;
+  }
+
+  private queueFor(transport: ConnectorTransport, queues: DispatchQueues): string {
+    if (transport === ConnectorTransport.HTTP) return queues.httpQueue;
+    if (transport === ConnectorTransport.SMPP) return queues.smppQueue;
+    throw new Error(`Unsupported connector transport: ${transport}`);
+  }
+
+  private async enqueueAttempt(
+    db: Prisma.TransactionClient,
+    data: { messageId: string; routeId: string; connectorId: string; attemptNumber: number; priority: number },
+    queueName: string,
+    scheduledAt: Date,
   ) {
-    return this.transaction(
-      async (db) => {
-        const now =
-          new Date();
-
-        const attempt =
-          await db.messageRouteAttempt.create({
-            data: {
-              messageId:
-                data.messageId,
-
-              routeId:
-                data.routeId,
-
-              connectorId:
-                data.connectorId,
-
-              attemptNumber:
-                data.attemptNumber,
-
-              priority:
-                data.priority,
-
-              status:
-                MessageRouteAttemptStatus.PENDING,
-
-              startedAt:
-                now,
-            },
-          });
-
-        await db.message.update({
-          where: {
-            id: data.messageId,
-          },
-
-          data: {
-            currentStatus:
-              MessageStatus.ROUTED,
-          },
-        });
-
-        await db.messageStatusEvent.create({
-          data: {
-            messageId:
-              data.messageId,
-
-            attemptId:
-              attempt.id,
-
-            status:
-              MessageStatus.ROUTED,
-
-            source:
-              "routing",
-
-            description:
-              "Message routed to connector.",
-
-            createdAt:
-              now,
-          },
-        });
-
-        return attempt;
+    const attempt = await db.messageRouteAttempt.create({
+      data: { ...data, status: "PENDING", scheduledAt },
+    });
+    await db.message.update({
+      where: { id: data.messageId },
+      data: { currentStatus: "ROUTED" },
+    });
+    await db.messageStatusEvent.create({
+      data: {
+        messageId: data.messageId, attemptId: attempt.id, status: "ROUTED",
+        source: "routing", description: "Message scheduled for connector submission.",
+        rawData: { scheduledAt: scheduledAt.toISOString() },
       },
-    );
+    });
+    await db.outboxEvent.create({
+      data: {
+        eventType: "CONNECTOR_DISPATCH", aggregateType: "MESSAGE_ROUTE_ATTEMPT",
+        aggregateId: attempt.id, queueName, availableAt: scheduledAt,
+        payload: {
+          messageId: data.messageId, attemptId: attempt.id,
+          routeId: data.routeId, connectorId: data.connectorId,
+        },
+      },
+    });
+    return attempt;
+  }
+
+  async createAttemptAndMarkRouted(
+    data: { messageId: string; routeId: string; connectorId: string; priority: number },
+    queues: DispatchQueues,
+  ) {
+    return this.transaction(async db => {
+      await this.lockMessage(db, data.messageId);
+      const repository = new RoutingRepository(db);
+      const message = await repository.findMessage(data.messageId);
+      if (!message || ["SUBMITTED", "DELIVERED", "EXPIRED"].includes(message.currentStatus)) return null;
+      const attempts = await repository.findAttempts(data.messageId);
+      const latest = attempts.at(-1);
+      if (latest && latest.status !== "FAILED") return null;
+      const cycleAttempts = await repository.currentCycleAttempts(data.messageId, attempts);
+      if (cycleAttempts.some(attempt => attempt.routeId === data.routeId)) return null;
+      const route = await db.route.findUnique({ where: { id: data.routeId }, include: { connector: true } });
+      if (!route || route.status !== "ACTIVE" || route.connector.status !== "ACTIVE" ||
+          route.clientId !== message.clientId || route.connectorId !== data.connectorId) return null;
+      return this.enqueueAttempt(db, {
+        ...data, priority: route.priority, attemptNumber: (latest?.attemptNumber ?? 0) + 1,
+      }, this.queueFor(route.connector.transport, queues), new Date());
+    });
+  }
+
+  async processSubmissionResult(result: RoutingResult, policy: RetryPolicy, queues: DispatchQueues) {
+    return this.transaction(async db => {
+      await this.lockMessage(db, result.messageId);
+      const repository = new RoutingRepository(db);
+      const attempts = await repository.findAttempts(result.messageId);
+      const attempt = attempts.find(item => item.id === result.attemptId);
+      if (!attempt || attempt.routeId !== result.routeId || attempt.connectorId !== result.connectorId) {
+        throw new Error("Connector result does not match routing attempt.");
+      }
+      // Serializing on the message protects both result deduplication and retry allocation.
+      if (["SUBMITTED", "FAILED", "UNKNOWN"].includes(attempt.status) || attempts.at(-1)?.id !== attempt.id) {
+        return { applied: false, nextAttempt: null, decision: "duplicate" };
+      }
+      const message = await repository.findMessage(result.messageId);
+      if (!message || ["SUBMITTED", "DELIVERED", "EXPIRED"].includes(message.currentStatus)) {
+        return { applied: false, nextAttempt: null, decision: "ignored" };
+      }
+      const status = result.status === "DISCONNECTED" ? "FAILED" : result.status;
+      if (!["SUBMITTED", "FAILED", "UNKNOWN"].includes(status)) throw new Error(`Invalid routing result status: ${status}`);
+
+      let next: Awaited<ReturnType<typeof repository.findRoutes>>[number] | undefined;
+      let scheduledAt = new Date();
+      let decision = status === "FAILED" ? "exhausted" : status.toLowerCase();
+      let retryNumber: number | undefined;
+      let delayMs = 0;
+      if (status === "FAILED") {
+        const route = await db.route.findUnique({ where: { id: attempt.routeId } });
+        if (!route) throw new Error("Routing attempt route no longer exists.");
+        const routes = await repository.findRoutes(message.clientId, route.mobileNetworkId);
+        const cycleAttempts = await repository.currentCycleAttempts(result.messageId, attempts);
+        const previousSubmissions = cycleAttempts.filter(item => item.routeId === attempt.routeId).length;
+        const current = routes.find(item => item.id === attempt.routeId);
+        if (current && previousSubmissions <= policy.maxRetries) {
+          next = current;
+          retryNumber = previousSubmissions;
+          delayMs = retryDelay(policy, previousSubmissions);
+          scheduledAt = new Date(Date.now() + delayMs);
+          decision = "retry";
+        } else {
+          const tried = new Set(cycleAttempts.map(item => item.routeId));
+          next = routes.find(item => !tried.has(item.id));
+          if (next) decision = "failover";
+        }
+      }
+      await repository.applyAttemptResult({ ...result, status }, !next);
+      const nextAttempt = next ? await this.enqueueAttempt(db, {
+        messageId: result.messageId, routeId: next.id, connectorId: next.connectorId,
+        priority: next.priority, attemptNumber: attempt.attemptNumber + 1,
+      }, this.queueFor(next.connector.transport, queues), scheduledAt) : null;
+      return { applied: true, nextAttempt, decision, retryNumber, delayMs };
+    });
   }
 }

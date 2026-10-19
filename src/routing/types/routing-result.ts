@@ -12,7 +12,7 @@ export interface RoutingResult {
   connectorId: string;
 
   status:
-  MessageRouteAttemptStatus;
+  MessageRouteAttemptStatus | "DISCONNECTED";
 
   providerMessageId?:
   string;

@@ -2,6 +2,8 @@ import {
   Injectable,
 } from "@nestjs/common";
 
+import type { RetryPolicy } from "../routing/retry/retry-policy.js";
+
 import {
   ConfigService,
 } from "@nestjs/config";
@@ -102,6 +104,10 @@ export class AppConfigService {
   // =========================================================================
   // Routing
   // =========================================================================
+
+  get retryPolicy(): RetryPolicy {
+    return this.config.getOrThrow<RetryPolicy>("routing.retryPolicy");
+  }
 
   get routing() {
     return {
