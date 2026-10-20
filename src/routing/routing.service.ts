@@ -1,3 +1,5 @@
+import { createCounterMetric, recordMetricSafely } from "@pague-co-uk/sms-gateway-telemetry";
+import { measureOperation } from "@pague-co-uk/sms-gateway-telemetry";
 import {
   Injectable,
 } from "@nestjs/common";
@@ -40,6 +42,8 @@ import {
 
 @Injectable()
 export class RoutingService {
+  private readonly decisions = createCounterMetric({ name: 'routing.decisions', description: 'Committed submission decisions, including duplicates and ignored results.' });
+  private readonly deliveryOutcomes = createCounterMetric({ name: 'sms.delivery.outcomes', description: 'Persisted delivery receipt outcomes; provider submission is not delivery.' });
   private readonly logger =
     getComponentLogger(
       RoutingService.name,
@@ -66,6 +70,7 @@ export class RoutingService {
   async route(
     message: RoutingMessage,
   ): Promise<void> {
+    return measureOperation("routing", { operation: "route" }, async () => {
     await withSpan(
       "RoutingService.route",
       async (span) => {
@@ -699,6 +704,8 @@ export class RoutingService {
         }
       },
     );
+
+    });
   }
 
   // =========================================================================
@@ -708,6 +715,7 @@ export class RoutingService {
   async processResult(
     result: RoutingResult,
   ): Promise<void> {
+    return measureOperation("routing", { operation: "submission_result" }, async () => {
     await withSpan(
       "RoutingService.processResult",
       async (span) => {
@@ -809,6 +817,7 @@ export class RoutingService {
         const outcome = await this.repository.processSubmissionResult(
           result, this.config.retryPolicy, this.config.routing,
         );
+        recordMetricSafely(() => this.decisions.increment({ decision: outcome.decision }));
         this.logger.info({
           event: `routing.submission.${outcome.decision}`,
           messageId: result.messageId, attemptId: result.attemptId,
@@ -829,6 +838,8 @@ export class RoutingService {
           : "Connector result processed.");
       },
     );
+
+    });
   }
 
   // =========================================================================
@@ -838,6 +849,7 @@ export class RoutingService {
   async processDeliveryReceipt(
     receipt: SmppDeliveryReceipt,
   ): Promise<void> {
+    return measureOperation("routing", { operation: "delivery_receipt" }, async () => {
     await withSpan(
       "RoutingService.processDeliveryReceipt",
       async (span) => {
@@ -985,6 +997,8 @@ export class RoutingService {
             return;
           }
 
+          recordMetricSafely(() => this.deliveryOutcomes.increment({ status: receipt.status }));
+
           // -------------------------------------------------------------------
           // Publish client DLR
           // -------------------------------------------------------------------
@@ -1075,5 +1089,7 @@ export class RoutingService {
         }
       },
     );
+
+    });
   }
 }

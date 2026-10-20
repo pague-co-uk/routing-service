@@ -1,3 +1,4 @@
+import { instrumentQueueClient } from "@pague-co-uk/sms-gateway-telemetry";
 import {
   Provider,
 } from "@nestjs/common";
@@ -33,7 +34,7 @@ export const queueProvider: Provider = {
         "QueueClient",
       );
 
-    return createQueueClient({
+    return instrumentQueueClient(createQueueClient({
       url:
         config.rabbitmq.url,
 
@@ -53,6 +54,6 @@ export const queueProvider: Provider = {
         config.rabbitmq.maxReconnectAttempts,
       autoRecover:
         config.rabbitmq.autoRecover,
-    });
+    }));
   },
 };
